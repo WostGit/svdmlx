@@ -1,11 +1,11 @@
-name: Manual Hyper-Quantized SVD (6GB RAM)
+name: Barebones Hyper-Quantized SVD (6GB RAM)
 
 on:
   workflow_dispatch:
 
 jobs:
   ultra-low-ram-gen:
-    runs-on: macos-14
+    runs-runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,32 +30,27 @@ jobs:
           image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           image = load_image(image_url).resize((512, 512))
 
-          print("Loading SVD with Manual Component Optimizations...")
+          print("Loading SVD with Barebones RAM optimizations...")
+          # Using fp16 is the single most important memory saver here
           pipe = StableVideoDiffusionPipeline.from_pretrained(
               "stabilityai/stable-video-diffusion-img2vid",
               torch_dtype=torch.float16,
               variant="fp16"
           )
 
-          # --- MANUAL 6GB SURVIVAL KIT ---
-          # 1. Sequential Offload still works on the pipeline level
+          # --- THE 6GB SURVIVAL KIT (STRIPPED) ---
+          # Sequential Offload is the "Heavy Lifter" - it streams layers from disk.
+          # This is universally supported and extremely effective.
           pipe.enable_sequential_cpu_offload()
           
-          # 2. Manual VAE Slicing: Call it on the VAE component directly
-          if hasattr(pipe.vae, "enable_slicing"):
-              pipe.vae.enable_slicing()
-
-          # 3. Manual VAE Tiling: Call it on the VAE component directly
-          if hasattr(pipe.vae, "enable_tiling"):
-              pipe.vae.enable_tiling()
-
-          # 4. UNet Forward Chunking
+          # UNet Forward Chunking is safe and helps with peak memory.
           if hasattr(pipe.unet, "enable_forward_chunking"):
               pipe.unet.enable_forward_chunking()
-          # ------------------------------------
+          # ---------------------------------------
 
           print("Generating 14 frames...")
-          # decode_chunk_size=1 is the most RAM-efficient setting
+          # decode_chunk_size=1 ensures we decode one frame at a time.
+          # This replaces the need for VAE slicing/tiling in SVD.
           frames = pipe(
               image, 
               decode_chunk_size=1, 
@@ -64,13 +59,13 @@ jobs:
               num_inference_steps=10
           ).frames[0]
 
-          export_to_video(frames, "svd_final_fix.mp4", fps=7)
-          print("Success! Video saved as svd_final_fix.mp4")
+          export_to_video(frames, "svd_barebones.mp4", fps=7)
+          print("Success! Video saved.")
           EOF
 
       - name: Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: svd-6gb-manual-video
-          path: svd_final_fix.mp4
+          name: svd-6gb-video
+          path: svd_barebones.mp4

@@ -5,7 +5,7 @@ on:
 
 jobs:
   ultra-low-ram-gen:
-    runs-runs-on: macos-14
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,6 +17,7 @@ jobs:
 
       - name: Install Optimized Stack
         run: |
+          # torchvision clears the processor warning and speeds up image handling
           pip install -U mlx diffusers transformers accelerate imageio-ffmpeg torchvision
 
       - name: Generate 14-Frame Video
@@ -25,13 +26,14 @@ jobs:
           import torch
           from diffusers import StableVideoDiffusionPipeline
           from diffusers.utils import load_image, export_to_video
+          import os
 
           # 1. Load a starter image
           image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           image = load_image(image_url).resize((512, 512))
 
           print("Loading SVD with Barebones RAM optimizations...")
-          # Using fp16 is the single most important memory saver here
+          # Using fp16 variant is the single most important memory saver here
           pipe = StableVideoDiffusionPipeline.from_pretrained(
               "stabilityai/stable-video-diffusion-img2vid",
               torch_dtype=torch.float16,
@@ -40,17 +42,17 @@ jobs:
 
           # --- THE 6GB SURVIVAL KIT (STRIPPED) ---
           # Sequential Offload is the "Heavy Lifter" - it streams layers from disk.
-          # This is universally supported and extremely effective.
+          # This is the most robust way to stay under the 14GB limit.
           pipe.enable_sequential_cpu_offload()
           
-          # UNet Forward Chunking is safe and helps with peak memory.
+          # UNet Forward Chunking is safe and helps with peak memory spikes.
           if hasattr(pipe.unet, "enable_forward_chunking"):
               pipe.unet.enable_forward_chunking()
           # ---------------------------------------
 
           print("Generating 14 frames...")
           # decode_chunk_size=1 ensures we decode one frame at a time.
-          # This replaces the need for VAE slicing/tiling in SVD.
+          # This acts as a manual version of 'slicing' to prevent VAE OOMs.
           frames = pipe(
               image, 
               decode_chunk_size=1, 

@@ -1,4 +1,4 @@
-name: Fixed Hyper-Quantized SVD (6GB RAM)
+name: Manual Hyper-Quantized SVD (6GB RAM)
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
 
       - name: Install Optimized Stack
         run: |
-          pip install -U mlx diffusers transformers accelerate imageio-ffmpeg 
+          pip install -U mlx diffusers transformers accelerate imageio-ffmpeg torchvision
 
       - name: Generate 14-Frame Video
         run: |
@@ -30,41 +30,47 @@ jobs:
           image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           image = load_image(image_url).resize((512, 512))
 
-          print("Loading SVD with 6GB RAM optimizations...")
-          # Load the float16 variant to save 50% memory immediately
+          print("Loading SVD with Manual Component Optimizations...")
           pipe = StableVideoDiffusionPipeline.from_pretrained(
               "stabilityai/stable-video-diffusion-img2vid",
               torch_dtype=torch.float16,
               variant="fp16"
           )
 
-          # --- THE 6GB SURVIVAL KIT (FIXED) ---
-          # 1. Sequential Offload: Streams the model layer-by-layer from disk to RAM.
+          # --- MANUAL 6GB SURVIVAL KIT ---
+          # 1. Sequential Offload still works on the pipeline level
           pipe.enable_sequential_cpu_offload()
           
-          # 2. VAE Slicing: Processes the video frames in smaller chunks to avoid VAE spikes.
-          pipe.enable_vae_slicing()
+          # 2. Manual VAE Slicing: Call it on the VAE component directly
+          if hasattr(pipe.vae, "enable_slicing"):
+              pipe.vae.enable_slicing()
 
-          # 3. Forward Chunking: Reduces memory in the UNet's feed-forward layers.
-          pipe.unet.enable_forward_chunking()
+          # 3. Manual VAE Tiling: Call it on the VAE component directly
+          if hasattr(pipe.vae, "enable_tiling"):
+              pipe.vae.enable_tiling()
+
+          # 4. UNet Forward Chunking
+          if hasattr(pipe.unet, "enable_forward_chunking"):
+              pipe.unet.enable_forward_chunking()
           # ------------------------------------
 
-          print("Generating 14 frames (one-by-one mode)...")
-          # decode_chunk_size=1 ensures we decode frames individually to stay under 6GB
+          print("Generating 14 frames...")
+          # decode_chunk_size=1 is the most RAM-efficient setting
           frames = pipe(
               image, 
               decode_chunk_size=1, 
               num_frames=14, 
               motion_bucket_id=127,
-              num_inference_steps=10 # Reduced steps for faster GitHub testing
+              num_inference_steps=10
           ).frames[0]
 
-          export_to_video(frames, "svd_6gb_fix.mp4", fps=7)
-          print("Done! Video saved.")
+          export_to_video(frames, "svd_final_fix.mp4", fps=7)
+          print("Success! Video saved as svd_final_fix.mp4")
           EOF
 
       - name: Upload Result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: svd-6gb-video
-          path: svd_6gb_fix.mp4
+          name: svd-6gb-manual-video
+          path: svd_final_fix.mp4

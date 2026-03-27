@@ -1,4 +1,4 @@
-name: MLX-SVD (6GB RAM Final Fix)
+name: MLX-SVD (6GB RAM Final Scripted Fix)
 
 on:
   workflow_dispatch:
@@ -18,30 +18,33 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # We force install everything needed for the 6GB run
           pip install mlx-video huggingface_hub opencv-python Pillow tqdm mlx
 
       - name: Prepare Assets
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          # Resize to 384x384 to prevent VAE crash
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((384, 384)).save('input.png')"
 
-      - name: Inference (Direct Entry Fix)
+      - name: Inference (Direct Python Script)
         run: |
-          echo "Starting Inference using direct python entry..."
+          cat << 'EOF' > run_svd.py
+          import mlx.core as mx
+          from mlx_video.svd.generate import generate
           
-          # We use 'python3 -m' to call the module directly, 
-          # which bypasses the 'command not found' error.
-          # Note: The actual module name for execution is 'mlx_video'
-          python3 -m mlx_video svd \
-            --model mlx-community/stable-video-diffusion-img2vid-4bit \
-            --image input.png \
-            --width 384 \
-            --height 384 \
-            --num-frames 12 \
-            --steps 3 \
-            --output output.mp4
+          # Force 6GB safety limits
+          generate(
+              model_path="mlx-community/stable-video-diffusion-img2vid-4bit",
+              image_path="input.png",
+              width=384,
+              height=384,
+              num_frames=12,
+              steps=3,
+              output_path="output.mp4"
+          )
+          EOF
+          
+          echo "Launching Python script for SVD..."
+          python3 run_svd.py
 
       - name: Upload Result
         if: always()

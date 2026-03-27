@@ -1,4 +1,4 @@
-name: MLX-Native SVD (Final Path Fix)
+name: MLX-Native SVD (Absolute Path Fix)
 
 on:
   workflow_dispatch:
@@ -22,20 +22,22 @@ jobs:
           
           # Clone official Apple MLX examples
           git clone https://github.com/ml-explore/mlx-examples.git
-          cd mlx-examples/stable_diffusion
-          pip install -r requirements.txt
+          cd mlx-examples
+          # Install from the root of the examples repo
+          pip install -e . 
 
       - name: 4. Image-to-Video Inference
         run: |
-          cd mlx-examples/stable_diffusion
+          # Find where the script actually lives
+          find mlx-examples -name "video_gen.py"
           
-          # Download seed image
+          # Download seed image to the root
           curl -L -o seed.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           
           echo "Starting Inference..."
-          # Calling the file directly (video_gen.py) instead of using -m
-          # This bypasses the Python module pathing issues
-          python video_gen.py \
+          # We call the script using its relative path from the current root
+          # Based on current MLX-Examples structure, it should be here:
+          python mlx-examples/stable_diffusion/video_gen.py \
             --model stabilityai/stable-video-diffusion-img2vid \
             --image seed.png \
             --num-frames 14 \
@@ -47,4 +49,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mlx-svd-video
-          path: mlx-examples/stable_diffusion/runner_result.mp4
+          path: runner_result.mp4

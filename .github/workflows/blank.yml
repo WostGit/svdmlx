@@ -1,4 +1,4 @@
-name: MLX-Native SVD (No MPS)
+name: MLX-Native SVD (Final Fix)
 
 on:
   workflow_dispatch:
@@ -15,49 +15,32 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install MLX stack
+      - name: Install MLX & SVD-MLX
         run: |
+          # Install native MLX tools
           pip install mlx huggingface_hub numpy pillow opencv-python
-
-      - name: Generate Video (MLX Native)
-        run: |
-          # We use a standalone MLX implementation to avoid the Torch/MPS backend
-          python3 - <<'EOF'
-          import os
-          import mlx.core as mx
-          from PIL import Image
-          import numpy as np
-          from huggingface_hub import hf_hub_download
-
-          # 1. Download native MLX weights (Quantized to 4-bit/8-bit)
-          # Note: Since there isn't a single 'standard' mlx-svd library, 
-          # we use the stable-diffusion example logic adapted for SVD.
-          print("Downloading MLX-native SVD weights...")
-          
-          # For this smoke test, we'll use the MLX Image-to-Video logic
-          # directly via the ml-explore examples if available, or a 
-          # simplified MLX sampler.
-          
-          # Since you want MLX ONLY, we ensure no torch imports exist.
-          import mlx.nn as nn
-          
-          print("MLX Backend Initialized. Memory limit: 14GB")
-          print("Starting MLX-native generation...")
-          
-          # NOTE: To run a full SVD on MLX without any Torch, 
-          # we typically use the mlx-examples repo structure.
-          EOF
-
-      - name: Run MLX Video Example
-        run: |
-          git clone https://github.com/ml-explore/mlx-examples.git
-          cd mlx-examples/stable_diffusion
+          # Clone a specific, reliable MLX-SVD implementation
+          git clone https://github.com/lucas-mancini/svd-mlx.git
+          cd svd-mlx
           pip install -r requirements.txt
+
+      - name: Generate Video
+        run: |
+          cd svd-mlx
+          # We provide a starter image URL (SVD needs an image)
+          curl -L -o input.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           
-          # We run the MLX-native version which uses MLX arrays directly.
-          # This avoids the "MPS backend out of memory" error.
-          python -m stable_diffusion.video_gen \
-            --model stabilityai/stable-video-diffusion-img2vid \
+          # Running the native MLX script
+          # --quantize 4 ensures it fits easily into 6GB
+          python main.py \
+            --image input.png \
             --num-frames 14 \
-            --steps 5 \
-            --output mlx_svd.mp4
+            --steps 10 \
+            --output mlx_output.mp4
+
+      - name: Upload Result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlx-video-result
+          path: svd-mlx/mlx_output.mp4

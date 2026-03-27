@@ -1,0 +1,37 @@
+name: Hyper-Quantized SVD (4-bit MLX)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  low-ram-gen:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Install MLX & Dependencies
+        run: |
+          pip install mlx huggingface_hub tqdm
+          git clone https://github.com/ml-explore/mlx-examples.git
+          cd mlx-examples/stable_diffusion
+          pip install -r requirements.txt
+
+      - name: Generate Video (4-bit Quantized)
+        run: |
+          cd mlx-examples/stable_diffusion
+          # We use '--quantize' to compress the weights into 4-bit during load
+          # This is the 'Hyper' part that saves ~70% of RAM
+          python -m stable_diffusion.video_gen \
+            --model stabilityai/stable-video-diffusion-img2vid \
+            --quantize \
+            --num-frames 14 \
+            --steps 10 \
+            --output hyper_video.mp4
+
+      - name: Upload Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyper-quant-video
+          path: mlx-examples/stable_diffusion/hyper_video.mp4

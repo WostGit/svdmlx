@@ -7,39 +7,33 @@ jobs:
   generate:
     runs-on: macos-14
     steps:
-      # 1. MUST BE FIRST: Bring the code into the runner
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup Python AFTER checkout so caching can find requirements (if needed)
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 3. Install the specific MLX stack for Low-RAM
-      - name: Install Optimized Stack
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install Pillow mlx-video huggingface_hub opencv-python tqdm
+          # Installing mlx-video and its core dependencies explicitly
+          pip install mlx-video huggingface_hub opencv-python Pillow tqdm mlx
 
-      # 4. Prepare 6GB-Safe Assets
-      - name: Prepare Input
+      - name: Prepare Assets
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          
-          # Using a robust one-liner to resize. 
-          # 384x384 is the "Safety Zone" for 6GB machines.
+          # Robust resize to 384x384 to save VRAM
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((384, 384)).save('input.png')"
 
-      # 5. Inference (4-Bit + Low Steps)
       - name: Inference
         run: |
-          echo "Starting Inference (Targeting < 6GB Usage)..."
+          echo "Starting Inference..."
           
-          # Using the pre-quantized 4-bit model from the community
-          # This keeps the weight footprint under 3GB.
-          python -m mlx_video.svd.generate \
+          # We use the universal 'mlx_video' command if the module path is failing
+          # This handles the internal routing for Stable Video Diffusion
+          mlx_video svd \
             --model mlx-community/stable-video-diffusion-img2vid-4bit \
             --image input.png \
             --width 384 \
@@ -52,5 +46,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: svd-6gb-result
+          name: svd-result
           path: output.mp4

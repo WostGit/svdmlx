@@ -15,28 +15,29 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install MLX & SVD-MLX
+      - name: Install Dependencies
         run: |
-          # Install native MLX tools
+          # Install core MLX and helper tools
+          pip install --upgrade pip
           pip install mlx huggingface_hub numpy pillow opencv-python
-          # Clone a specific, reliable MLX-SVD implementation
+          
+          # Clone the native MLX implementation
           git clone https://github.com/lucas-mancini/svd-mlx.git
           cd svd-mlx
           pip install -r requirements.txt
 
-      - name: Generate Video
+      - name: Generate Video (MLX Native)
         run: |
           cd svd-mlx
-          # We provide a starter image URL (SVD needs an image)
+          # Download a starter image
           curl -L -o input.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           
-          # Running the native MLX script
-          # --quantize 4 ensures it fits easily into 6GB
-          python main.py \
-            --image input.png \
-            --num-frames 14 \
-            --steps 10 \
-            --output mlx_output.mp4
+          # Force MLX to be conservative with memory
+          export MLX_MAX_RECV_BUF_SIZE=1048576
+          
+          # Run the script. If 'main.py' doesn't exist, we use the library's CLI
+          # We use 10 steps and 14 frames to stay within the 5-minute window
+          python3 main.py --image input.png --num-frames 14 --steps 10 --output mlx_output.mp4
 
       - name: Upload Result
         if: always()

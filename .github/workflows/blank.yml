@@ -7,35 +7,38 @@ jobs:
   generate:
     runs-on: macos-14
     steps:
-      - name: 1. Checkout
+      # 1. MUST BE FIRST: Bring the code into the runner
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Setup Python & Dependencies
+      # 2. Setup Python AFTER checkout so caching can find requirements (if needed)
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip'
 
-      - name: 3. Install Optimized Stack
+      # 3. Install the specific MLX stack for Low-RAM
+      - name: Install Optimized Stack
         run: |
           python -m pip install --upgrade pip
-          # Explicitly installing Pillow and mlx-video in one go
           pip install Pillow mlx-video huggingface_hub opencv-python tqdm
 
-      - name: 4. Prepare 6GB-Safe Assets
+      # 4. Prepare 6GB-Safe Assets
+      - name: Prepare Input
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           
-          # We call python -m to ensure we use the environment where Pillow was installed
-          python3 -m PIL.Image -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((384, 384)).save('input.png')" || \
+          # Using a robust one-liner to resize. 
+          # 384x384 is the "Safety Zone" for 6GB machines.
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((384, 384)).save('input.png')"
 
-      - name: 5. Inference (Ultra-Low Memory Mode)
+      # 5. Inference (4-Bit + Low Steps)
+      - name: Inference
         run: |
           echo "Starting Inference (Targeting < 6GB Usage)..."
           
-          # Using mlx-community/stable-video-diffusion-img2vid-4bit
-          # This model is pre-quantized to 4-bits, which is critical for 6GB RAM.
+          # Using the pre-quantized 4-bit model from the community
+          # This keeps the weight footprint under 3GB.
           python -m mlx_video.svd.generate \
             --model mlx-community/stable-video-diffusion-img2vid-4bit \
             --image input.png \
@@ -45,7 +48,7 @@ jobs:
             --steps 3 \
             --output output.mp4
 
-      - name: 6. Upload
+      - name: Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:

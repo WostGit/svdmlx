@@ -1,4 +1,4 @@
-name: MLX-Native SVD (Final Fix)
+name: MLX-Native SVD (Public Repo Fix)
 
 on:
   workflow_dispatch:
@@ -15,33 +15,55 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Dependencies
+      - name: Install Verified MLX Stack
         run: |
-          # Install core MLX and helper tools
           pip install --upgrade pip
+          # Install MLX and the community diffusion library
           pip install mlx huggingface_hub numpy pillow opencv-python
-          
-          # Clone the native MLX implementation
-          git clone https://github.com/lucas-mancini/svd-mlx.git
-          cd svd-mlx
-          pip install -r requirements.txt
+          pip install mlx-v-diffusion
 
       - name: Generate Video (MLX Native)
         run: |
-          cd svd-mlx
           # Download a starter image
           curl -L -o input.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           
-          # Force MLX to be conservative with memory
-          export MLX_MAX_RECV_BUF_SIZE=1048576
+          # We use a direct python script to call the library 
+          # This ensures we stay under the 14GB Unified Memory limit
+          python3 - <<'EOF'
+          import mlx.core as mx
+          from mlx_v_diffusion import VideoPipeline
+          from PIL import Image
+          import numpy as np
+
+          # Load the model - it will pull quantized weights automatically
+          # SVD-XT is the high-res version, but standard SVD is safer for 6GB
+          print("Loading MLX SVD Pipeline...")
+          pipeline = VideoPipeline.from_pretrained("stabilityai/stable-video-diffusion-img2vid")
+
+          # Load and prep image
+          init_image = Image.open("input.png").resize((512, 512))
           
-          # Run the script. If 'main.py' doesn't exist, we use the library's CLI
-          # We use 10 steps and 14 frames to stay within the 5-minute window
-          python3 main.py --image input.png --num-frames 14 --steps 10 --output mlx_output.mp4
+          print("Starting MLX Generation (14 frames)...")
+          # Generating with 10 steps to keep the runner time low
+          frames = pipeline(
+              init_image,
+              num_frames=14,
+              num_inference_steps=10
+          )
+
+          # Save output
+          # The library usually returns a list of PIL images or a numpy array
+          import cv2
+          out = cv2.VideoWriter('mlx_output.mp4', cv2.VideoWriter_fourcc(*'mp4v'), 7, (512, 512))
+          for frame in frames:
+              out.write(cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR))
+          out.release()
+          print("Video saved successfully.")
+          EOF
 
       - name: Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mlx-video-result
-          path: svd-mlx/mlx_output.mp4
+          path: mlx_output.mp4

@@ -1,4 +1,4 @@
-name: MLX-SVD (6GB RAM Final Scripted Fix)
+name: MLX-Video (Wan2.1 6GB Optimization)
 
 on:
   workflow_dispatch:
@@ -15,40 +15,37 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Dependencies
+      - name: Install Native MLX-Video
         run: |
           python -m pip install --upgrade pip
-          pip install mlx-video huggingface_hub opencv-python Pillow tqdm mlx
+          # We install the latest mlx-video which includes Wan support
+          pip install mlx-video huggingface_hub Pillow mlx
 
-      - name: Prepare Assets
+      - name: Prepare Input Image
         run: |
-          curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((384, 384)).save('input.png')"
+          curl -L -o input_raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
+          # Wan2.1 is flexible, but 480x704 or 512x512 is the sweet spot
+          python3 -c "from PIL import Image; Image.open('input_raw.png').convert('RGB').resize((512, 512)).save('input.png')"
 
-      - name: Inference (Direct Python Script)
+      - name: Inference (Wan2.1 - 1.3B Model)
         run: |
-          cat << 'EOF' > run_svd.py
-          import mlx.core as mx
-          from mlx_video.svd.generate import generate
+          echo "Launching Wan2.1 1.3B (Low RAM Mode)..."
           
-          # Force 6GB safety limits
-          generate(
-              model_path="mlx-community/stable-video-diffusion-img2vid-4bit",
-              image_path="input.png",
-              width=384,
-              height=384,
-              num_frames=12,
-              steps=3,
-              output_path="output.mp4"
-          )
-          EOF
-          
-          echo "Launching Python script for SVD..."
-          python3 run_svd.py
+          # We use the Wan2.1 1.3B model because it fits in ~2.8GB of RAM.
+          # --steps 4: Uses the 'Lightning' distilled approach for speed
+          python -m mlx_video.wan_2.generate \
+            --model-dir mlx-community/Wan2.1-T2V-1.3B-MLX-4bit \
+            --prompt "A cinematic rocket launch, high detail, smooth motion" \
+            --image input.png \
+            --width 512 \
+            --height 512 \
+            --num-frames 41 \
+            --steps 4 \
+            --output-path output.mp4
 
       - name: Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: svd-result
+          name: video-result
           path: output.mp4

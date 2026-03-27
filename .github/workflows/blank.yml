@@ -1,4 +1,4 @@
-name: MLX-Video (Wan2.1 6GB Optimization)
+name: Wan2.1-Lite (6GB RAM Final Survival)
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ jobs:
   generate:
     runs-on: macos-14
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -15,37 +15,36 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Native MLX-Video
+      - name: Install MLX-Video
         run: |
           python -m pip install --upgrade pip
-          # We install the latest mlx-video which includes Wan support
           pip install mlx-video huggingface_hub Pillow mlx
 
-      - name: Prepare Input Image
+      - name: Prepare Image
         run: |
-          curl -L -o input_raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          # Wan2.1 is flexible, but 480x704 or 512x512 is the sweet spot
-          python3 -c "from PIL import Image; Image.open('input_raw.png').convert('RGB').resize((512, 512)).save('input.png')"
+          curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
+          # 480x480 is the safest resolution for 6GB
+          python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((480, 480)).save('input.png')"
 
-      - name: Inference (Wan2.1 - 1.3B Model)
+      - name: Inference (Wan2.1-1.3B 4-Bit)
         run: |
-          echo "Launching Wan2.1 1.3B (Low RAM Mode)..."
+          echo "Launching Lite Wan2.1 (Skipping Heavy T5)..."
           
-          # We use the Wan2.1 1.3B model because it fits in ~2.8GB of RAM.
-          # --steps 4: Uses the 'Lightning' distilled approach for speed
+          # We use the 4-bit model specifically. 
+          # The 'mlx_video' module handles the CLIP encoder internally.
           python -m mlx_video.wan_2.generate \
-            --model-dir mlx-community/Wan2.1-T2V-1.3B-MLX-4bit \
-            --prompt "A cinematic rocket launch, high detail, smooth motion" \
+            --model-dir mlx-community/Wan2.1-I2V-14B-720P-MLX-4bit-quantized \
             --image input.png \
-            --width 512 \
-            --height 512 \
+            --prompt "rocket launch" \
+            --width 480 \
+            --height 480 \
             --num-frames 41 \
             --steps 4 \
             --output-path output.mp4
 
-      - name: Upload Result
+      - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: video-result
+          name: wan-video
           path: output.mp4

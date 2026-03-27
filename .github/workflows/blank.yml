@@ -18,22 +18,23 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Installing mlx-video and its core dependencies explicitly
+          # We force install everything needed for the 6GB run
           pip install mlx-video huggingface_hub opencv-python Pillow tqdm mlx
 
       - name: Prepare Assets
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          # Robust resize to 384x384 to save VRAM
+          # Resize to 384x384 to prevent VAE crash
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((384, 384)).save('input.png')"
 
-      - name: Inference
+      - name: Inference (Direct Entry Fix)
         run: |
-          echo "Starting Inference..."
+          echo "Starting Inference using direct python entry..."
           
-          # We use the universal 'mlx_video' command if the module path is failing
-          # This handles the internal routing for Stable Video Diffusion
-          mlx_video svd \
+          # We use 'python3 -m' to call the module directly, 
+          # which bypasses the 'command not found' error.
+          # Note: The actual module name for execution is 'mlx_video'
+          python3 -m mlx_video svd \
             --model mlx-community/stable-video-diffusion-img2vid-4bit \
             --image input.png \
             --width 384 \

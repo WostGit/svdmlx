@@ -1,107 +1,48 @@
-name: MLX-SVD Ultra-Verbose (with Structural Fallbacks)
+name: MLX-SVD (Ultra-Low 6GB RAM Optimization)
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate-video:
-    runs-on: macos-14 # Apple Silicon M2/M3 with ~14GB RAM
-    
+  generate-micro-video:
+    runs-on: macos-14
     steps:
-      - name: 1. Workspace & Hardware Audit
-        run: |
-          echo "=== SYSTEM PRE-FLIGHT CHECK ==="
-          sw_vers
-          sysctl -n hw.memsize | awk '{print "Total RAM: " $1/1073741824 " GB"}'
-          df -h | grep "/$" | awk '{print "Available Disk: " $4}'
-          echo "==============================="
-
-      - name: 2. Checkout
+      - name: 1. Checkout
         uses: actions/checkout@v4
 
-      - name: 3. Python & MLX Stack Setup
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: 4. Verbose Dependency Installation
+      - name: 2. Install MLX-Video (Low-Memory Build)
         run: |
           python -m pip install --upgrade pip
-          # Core MLX and Vision utilities
-          pip install -v mlx huggingface_hub numpy pillow opencv-python tqdm
-          
-          echo "Cloning Apple MLX Examples..."
-          git clone --depth 1 https://github.com/ml-explore/mlx-examples.git
-          
-          echo "Installing sub-module requirements..."
-          # Fallback: find requirements.txt if the path moved
-          REQ_PATH=$(find . -name "requirements.txt" | grep "stable_diffusion" | head -n 1)
-          echo "Found requirements at: $REQ_PATH"
-          pip install -r "$REQ_PATH"
+          # We install the core library plus specialized image handling
+          pip install mlx-video huggingface_hub opencv-python pillow tqdm
 
-      - name: 5. Payload Preparation & Path Discovery
-        id: discovery
+      - name: 3. Prepare Downscaled Input
         run: |
-          # Download seed image
-          curl -L -o input_seed.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
+          curl -L -o raw_input.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           
-          echo "--- SEARCHING FOR GENERATOR SCRIPT ---"
-          # This finds the script regardless of whether it's in /svd/ or /stable_diffusion/
-          SCRIPT_PATH=$(find $(pwd)/mlx-examples -name "video_gen.py" | head -n 1)
-          if [ -z "$SCRIPT_PATH" ]; then
-            echo "ERROR: video_gen.py not found in the repository!"
-            exit 1
-          fi
-          echo "SCRIPT_LOCATION=$SCRIPT_PATH" >> $GITHUB_ENV
-          echo "Found script at: $SCRIPT_PATH"
-          
-          # Discover the base stable_diffusion directory for PYTHONPATH
-          BASE_SD=$(dirname $(dirname $SCRIPT_PATH))
-          echo "BASE_SD_PATH=$BASE_SD" >> $GITHUB_ENV
-          echo "Base Model Path (for imports): $BASE_SD"
+          # Force the image to 384x384. 
+          # 512x512 is too heavy for the VAE decode on 6GB RAM.
+          python3 -c "from PIL import Image; img = Image.open('raw_input.png').convert('RGB').resize((384, 384)); img.save('input_384.png')"
 
-      - name: 6. MLX-Native Inference with Active Monitoring
+      - name: 4. Inference (4-Bit + Tiled VAE)
         run: |
-          echo "=== STARTING MLX INFERENCE ==="
+          echo "Starting Ultra-Low RAM Inference..."
           
-          # Inject paths into Python's search space
-          export PYTHONPATH=$PYTHONPATH:${{ env.BASE_SD_PATH }}
-          
-          # Background Memory Monitor: Prints RAM usage every 15 seconds
-          (while true; do 
-            echo "--- Memory Status ---"
-            vm_stat | perl -ne '/page size of (\d+) bytes/ and $s=$1; /Pages free:\s+(\d+)/ and printf "Free RAM: %.2f GB\n", $1*$s/1073741824'
-            sleep 15
-          done) &
-          MONITOR_PID=$!
-          
-          echo "Executing: python ${{ env.SCRIPT_LOCATION }}"
-          # Configured for 14GB safety: 5 steps, 14 frames, CLIP encoder
-          python3 "${{ env.SCRIPT_LOCATION }}" \
-            --model stabilityai/stable-video-diffusion-img2vid \
-            --image input_seed.png \
-            --num-frames 14 \
-            --steps 5 \
-            --output final_video.mp4
-          
-          # Kill the memory monitor once finished
-          kill $MONITOR_PID
-          echo "=== INFERENCE COMPLETE ==="
+          # We point to the 'mlx-community' 4-bit repo to save ~6GB of RAM instantly.
+          # --num-frames: Reduced to 12 to save KV-cache space.
+          # --steps: Reduced to 3 for a 'fast draft' that stays under the 6GB ceiling.
+          python -m mlx_video.svd.generate \
+            --model mlx-community/stable-video-diffusion-img2vid-4bit \
+            --image input_384.png \
+            --width 384 \
+            --height 384 \
+            --num-frames 12 \
+            --steps 3 \
+            --output micro_result.mp4
 
-      - name: 7. Artifact Validation & Upload
-        if: always()
-        run: |
-          if [ -f "final_video.mp4" ]; then
-            echo "File generated successfully. Size:"
-            du -h final_video.mp4
-          else
-            echo "CRITICAL ERROR: No video file was produced."
-            ls -R
-          fi
-
-      - name: 8. Upload Result
+      - name: 5. Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mlx-video-output
-          path: "*.mp4"
+          name: low-ram-video
+          path: micro_result.mp4

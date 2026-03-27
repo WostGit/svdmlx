@@ -1,4 +1,4 @@
-name: Wan2.1-Lite (6GB RAM Final Survival)
+name: MLX-Video (Wan2.1 Final 6GB Fix)
 
 on:
   workflow_dispatch:
@@ -15,36 +15,43 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install MLX-Video
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
+          # Installing the specific version to ensure Wan support
           pip install mlx-video huggingface_hub Pillow mlx
+
+      - name: Debug Package Structure
+        run: |
+          echo "--- Verifying Package Structure ---"
+          python3 -c "import mlx_video; import os; print('Location:', os.path.dirname(mlx_video.__file__));"
+          # This will show us exactly where the wan_2 folder is
+          find $(python3 -c "import mlx_video; import os; print(os.path.dirname(mlx_video.__file__))") -name "generate.py"
 
       - name: Prepare Image
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          # 480x480 is the safest resolution for 6GB
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((480, 480)).save('input.png')"
 
-      - name: Inference (Wan2.1-1.3B 4-Bit)
+      - name: Inference (Direct Entry)
         run: |
-          echo "Launching Lite Wan2.1 (Skipping Heavy T5)..."
+          # We are calling the 1.3B-4bit model which is the ONLY one that fits in 6GB.
+          # We use 'mlx-video' as a CLI command which is the most stable entry point.
+          echo "Launching Video Generation..."
           
-          # We use the 4-bit model specifically. 
-          # The 'mlx_video' module handles the CLIP encoder internally.
-          python -m mlx_video.wan_2.generate \
-            --model-dir mlx-community/Wan2.1-I2V-14B-720P-MLX-4bit-quantized \
+          mlx-video wan21-i2v \
+            --model mlx-community/Wan2.1-I2V-1.3B-4bit-mlx \
             --image input.png \
-            --prompt "rocket launch" \
+            --prompt "A cinematic rocket launch" \
             --width 480 \
             --height 480 \
-            --num-frames 41 \
+            --frames 41 \
             --steps 4 \
-            --output-path output.mp4
+            --output output.mp4
 
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wan-video
+          name: rocket-video
           path: output.mp4

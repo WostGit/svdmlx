@@ -1,10 +1,10 @@
-name: Hyper-Quantized SVD (Direct Pipeline)
+name: Hyper-Quantized SVD (6GB RAM Limit)
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate-video:
+  ultra-low-ram-gen:
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -15,58 +15,56 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install AI Stack
+      - name: Install Optimized Stack
         run: |
-          # We need 'accelerate' for the memory offloading tricks
+          # 'accelerate' is mandatory for sequential offloading
           pip install -U mlx diffusers transformers accelerate imageio-ffmpeg 
 
-      - name: Run SVD with Offloading
+      - name: Generate 14-Frame Video
         run: |
           python3 - <<'EOF'
           import torch
           from diffusers import StableVideoDiffusionPipeline
           from diffusers.utils import load_image, export_to_video
-          import os
 
-          # 1. Provide a starter image (SVD requires a 'seed' image)
-          # Using a high-contrast image helps the 4-bit model stay coherent
+          # 1. Load an image (SVD needs a visual starting point)
           image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           image = load_image(image_url).resize((512, 512))
 
-          print("Loading SVD Model with Hyper-Offloading...")
-          # We load in fp16 to save 50% RAM immediately
+          print("Loading SVD with 6GB RAM optimizations...")
           pipe = StableVideoDiffusionPipeline.from_pretrained(
               "stabilityai/stable-video-diffusion-img2vid",
               torch_dtype=torch.float16,
               variant="fp16"
           )
 
-          # --- HYPER OPTIMIZATION ---
-          # This moves every component to the SSD/CPU except the one being computed.
-          # It reduces peak RAM from ~18GB down to ~6GB.
-          pipe.enable_model_cpu_offload()
+          # --- THE 6GB SURVIVAL KIT ---
+          # 1. Sequential Offload: Moves individual LAYERS to disk, not just models.
+          # This is the most aggressive RAM saver available.
+          pipe.enable_sequential_cpu_offload()
           
-          # Tiling prevents the VAE from crashing when turning math into pixels.
+          # 2. VAE Tiling: Decodes the video in small 128x128 chunks to avoid RAM spikes.
           pipe.enable_vae_tiling()
+          
+          # 3. Model Slicing: Processes attention layers in smaller parts.
+          pipe.enable_vae_slicing()
           # ---------------------------
 
-          print("Starting video generation (14 frames)...")
-          # decode_chunk_size=2 ensures the "Video Decoder" doesn't spike RAM
+          print("Generating frames (this will be slow but safe)...")
+          # decode_chunk_size=1 is the absolute minimum (1 frame at a time)
           frames = pipe(
               image, 
-              decode_chunk_size=2, 
+              decode_chunk_size=1, 
               num_frames=14, 
-              motion_bucket_id=127,
-              fps=7
+              motion_bucket_id=127
           ).frames[0]
 
-          export_to_video(frames, "svd_output.mp4", fps=7)
-          print("Success! Video saved as svd_output.mp4")
+          export_to_video(frames, "svd_ultra_low.mp4", fps=7)
+          print("Done! Check artifacts for svd_ultra_low.mp4")
           EOF
 
-      - name: Upload Video
-        if: always()
+      - name: Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: svd-result
-          path: svd_output.mp4
+          name: svd-6gb-result
+          path: svd_ultra_low.mp4

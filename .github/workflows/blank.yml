@@ -11,6 +11,7 @@ jobs:
       HF_HOME: ${{ github.workspace }}/.hf
       HF_HUB_CACHE: ${{ github.workspace }}/.hf/hub
       HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
     steps:
       - name: Checkout
@@ -26,17 +27,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install mlx-video Pillow mlx huggingface_hub
 
-      - name: Show Hugging Face Config
+      - name: Show HF Config
         run: |
           echo "HF_ENDPOINT=$HF_ENDPOINT"
           echo "HF_HOME=$HF_HOME"
           echo "HF_HUB_CACHE=$HF_HUB_CACHE"
+          if [ -n "$HF_TOKEN" ]; then echo "HF_TOKEN is set"; else echo "HF_TOKEN is NOT set"; fi
+
+      - name: Restore cached model if present
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: |
+            .hf
+            models/Wan2.1-I2V-1.3B-4bit-mlx
+          key: wan21-i2v-1_3b-4bit-mlx-v1
 
       - name: Download Model via HF Proxy
+        if: steps.cache-model.outputs.cache-hit != 'true'
         run: |
           python3 - <<'PY'
           import os
           from huggingface_hub import snapshot_download
+
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              raise SystemExit("HF_TOKEN secret is missing. Add it in GitHub: Settings -> Secrets and variables -> Actions -> New repository secret")
 
           local_dir = os.path.abspath("./models/Wan2.1-I2V-1.3B-4bit-mlx")
           os.makedirs(local_dir, exist_ok=True)
@@ -45,8 +61,10 @@ jobs:
               repo_id="mlx-community/Wan2.1-I2V-1.3B-4bit-mlx",
               local_dir=local_dir,
               local_dir_use_symlinks=False,
-              resume_download=True,
+              token=token,
               endpoint=os.environ["HF_ENDPOINT"],
+              resume_download=True,
+              max_workers=1,
           )
           print(f"Model downloaded to: {path}")
           PY
@@ -102,6 +120,7 @@ jobs:
 
       - name: Verify Output
         run: |
+          test -f input.png || (echo "input.png was not created" && exit 1)
           test -f output.mp4 || (echo "output.mp4 was not created" && exit 1)
           ls -lh input.png output.mp4
 

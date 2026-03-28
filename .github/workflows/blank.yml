@@ -1,135 +1,54 @@
-name: MLX-Video (Wan2.1 Final 6GB Fix - HF Proxy)
+name: MLX-Native SVD (M-Series Success)
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate:
+  mlx-video-gen:
     runs-on: self-hosted
-    env:
-      HF_ENDPOINT: https://hf-mirror.com
-      HF_HOME: ${{ github.workspace }}/.hf
-      HF_HUB_CACHE: ${{ github.workspace }}/.hf/hub
-      HF_HUB_DISABLE_TELEMETRY: "1"
-      HF_TOKEN: ${{ secrets.HF_TOKEN }}
-
     steps:
-      - name: Checkout
+      # CRITICAL: This MUST be the first step.
+      - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      # Now that the repo is checked out, Python can find the cache keys
+      - name: 2. Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          # Removed the 'cache' line temporarily to prevent "No File Matched" errors
+          # during this debugging phase.
 
-      - name: Install Dependencies
+      - name: 3. Install Core MLX & Clone Examples
         run: |
           python -m pip install --upgrade pip
-          pip install mlx-video Pillow mlx huggingface_hub
+          pip install mlx huggingface_hub numpy pillow opencv-python tqdm
+          
+          # Clone the official Apple MLX examples directly into the runner
+          git clone https://github.com/ml-explore/mlx-examples.git
+          cd mlx-examples/stable_diffusion
+          pip install -r requirements.txt
 
-      - name: Show HF Config
+      - name: 4. Image-to-Video Inference (MLX Native)
         run: |
-          echo "HF_ENDPOINT=$HF_ENDPOINT"
-          echo "HF_HOME=$HF_HOME"
-          echo "HF_HUB_CACHE=$HF_HUB_CACHE"
-          if [ -n "$HF_TOKEN" ]; then echo "HF_TOKEN is set"; else echo "HF_TOKEN is NOT set"; fi
+          # Navigate to the correct submodule path
+          cd mlx-examples/stable_diffusion
+          
+          # Download a high-quality seed image
+          curl -L -o seed.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
+          
+          echo "Starting Inference on 14GB Unified Memory..."
+          # Running with 5 steps for maximum speed and safety
+          python -m video_gen \
+            --model stabilityai/stable-video-diffusion-img2vid \
+            --image seed.png \
+            --num-frames 14 \
+            --steps 5 \
+            --output runner_result.mp4
 
-      - name: Restore cached model if present
-        id: cache-model
-        uses: actions/cache@v4
-        with:
-          path: |
-            .hf
-            models/Wan2.1-I2V-1.3B-4bit-mlx
-          key: wan21-i2v-1_3b-4bit-mlx-v1
-
-      - name: Download Model via HF Proxy
-        if: steps.cache-model.outputs.cache-hit != 'true'
-        run: |
-          python3 - <<'PY'
-          import os
-          from huggingface_hub import snapshot_download
-
-          token = os.environ.get("HF_TOKEN")
-          if not token:
-              raise SystemExit("HF_TOKEN secret is missing. Add it in GitHub: Settings -> Secrets and variables -> Actions -> New repository secret")
-
-          local_dir = os.path.abspath("./models/Wan2.1-I2V-1.3B-4bit-mlx")
-          os.makedirs(local_dir, exist_ok=True)
-
-          path = snapshot_download(
-              repo_id="mlx-community/Wan2.1-I2V-1.3B-4bit-mlx",
-              local_dir=local_dir,
-              local_dir_use_symlinks=False,
-              token=token,
-              endpoint=os.environ["HF_ENDPOINT"],
-              resume_download=True,
-              max_workers=1,
-          )
-          print(f"Model downloaded to: {path}")
-          PY
-
-      - name: Verify Local Model Exists
-        run: |
-          echo "Checking local model path..."
-          test -d "./models/Wan2.1-I2V-1.3B-4bit-mlx" || (echo "Model folder not found" && exit 1)
-          find ./models/Wan2.1-I2V-1.3B-4bit-mlx -maxdepth 2 -type f | head -50
-
-      - name: Create Input Image Locally
-        run: |
-          python3 - <<'PY'
-          from PIL import Image, ImageDraw
-
-          w, h = 480, 480
-          img = Image.new("RGB", (w, h), (10, 10, 30))
-          draw = ImageDraw.Draw(img)
-
-          for p in [(40,60),(120,90),(210,50),(320,110),(400,70),(70,180),(390,180)]:
-              draw.ellipse((p[0]-2, p[1]-2, p[0]+2, p[1]+2), fill=(255,255,255))
-
-          draw.ellipse((140, 360, 340, 470), fill=(90, 90, 110))
-          draw.ellipse((170, 390, 310, 470), fill=(140, 140, 160))
-
-          draw.polygon([(240,120), (210,200), (210,310), (270,310), (270,200)], fill=(230,230,235))
-          draw.polygon([(240,90), (210,140), (270,140)], fill=(200,40,40))
-
-          draw.ellipse((228,170,252,194), fill=(80,170,255))
-
-          draw.polygon([(210,280), (180,320), (210,320)], fill=(200,40,40))
-          draw.polygon([(270,280), (300,320), (270,320)], fill=(200,40,40))
-
-          draw.polygon([(240,310), (222,360), (240,340), (258,360)], fill=(255,170,40))
-          draw.polygon([(240,325), (230,350), (240,342), (250,350)], fill=(255,230,120))
-
-          img.save("input.png")
-          print("Created input.png")
-          PY
-
-      - name: Inference
-        run: |
-          echo "Launching Video Generation..."
-          mlx-video wan21-i2v \
-            --model-dir ./models/Wan2.1-I2V-1.3B-4bit-mlx \
-            --image input.png \
-            --prompt "A cinematic rocket launch, dramatic smoke, bright engine flame, realistic motion" \
-            --width 480 \
-            --height 480 \
-            --num-frames 41 \
-            --steps 4 \
-            --output-path output.mp4
-
-      - name: Verify Output
-        run: |
-          test -f input.png || (echo "input.png was not created" && exit 1)
-          test -f output.mp4 || (echo "output.mp4 was not created" && exit 1)
-          ls -lh input.png output.mp4
-
-      - name: Upload
+      - name: 5. Upload Final Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rocket-video
-          path: |
-            input.png
-            output.mp4
-          if-no-files-found: warn
+          name: mlx-svd-video
+          path: mlx-examples/stable_diffusion/runner_result.mp4

@@ -8,7 +8,9 @@ jobs:
     runs-on: self-hosted
     env:
       HF_ENDPOINT: https://hf-mirror.com
-      HUGGINGFACE_HUB_ENDPOINT: https://hf-mirror.com
+      HF_HOME: ${{ github.workspace }}/.hf
+      HF_HUB_CACHE: ${{ github.workspace }}/.hf/hub
+      HF_HUB_DISABLE_TELEMETRY: "1"
 
     steps:
       - name: Checkout
@@ -24,10 +26,36 @@ jobs:
           python -m pip install --upgrade pip
           pip install mlx-video Pillow mlx huggingface_hub
 
-      - name: Show Hugging Face Proxy Config
+      - name: Show Hugging Face Config
         run: |
           echo "HF_ENDPOINT=$HF_ENDPOINT"
-          echo "HUGGINGFACE_HUB_ENDPOINT=$HUGGINGFACE_HUB_ENDPOINT"
+          echo "HF_HOME=$HF_HOME"
+          echo "HF_HUB_CACHE=$HF_HUB_CACHE"
+
+      - name: Download Model via HF Proxy
+        run: |
+          python3 - <<'PY'
+          import os
+          from huggingface_hub import snapshot_download
+
+          local_dir = os.path.abspath("./models/Wan2.1-I2V-1.3B-4bit-mlx")
+          os.makedirs(local_dir, exist_ok=True)
+
+          path = snapshot_download(
+              repo_id="mlx-community/Wan2.1-I2V-1.3B-4bit-mlx",
+              local_dir=local_dir,
+              local_dir_use_symlinks=False,
+              resume_download=True,
+              endpoint=os.environ["HF_ENDPOINT"],
+          )
+          print(f"Model downloaded to: {path}")
+          PY
+
+      - name: Verify Local Model Exists
+        run: |
+          echo "Checking local model path..."
+          test -d "./models/Wan2.1-I2V-1.3B-4bit-mlx" || (echo "Model folder not found" && exit 1)
+          find ./models/Wan2.1-I2V-1.3B-4bit-mlx -maxdepth 2 -type f | head -50
 
       - name: Create Input Image Locally
         run: |
@@ -59,18 +87,18 @@ jobs:
           print("Created input.png")
           PY
 
-      - name: Inference (HF Proxy)
+      - name: Inference
         run: |
           echo "Launching Video Generation..."
           mlx-video wan21-i2v \
-            --model mlx-community/Wan2.1-I2V-1.3B-4bit-mlx \
+            --model-dir ./models/Wan2.1-I2V-1.3B-4bit-mlx \
             --image input.png \
             --prompt "A cinematic rocket launch, dramatic smoke, bright engine flame, realistic motion" \
             --width 480 \
             --height 480 \
-            --frames 41 \
+            --num-frames 41 \
             --steps 4 \
-            --output output.mp4
+            --output-path output.mp4
 
       - name: Verify Output
         run: |
